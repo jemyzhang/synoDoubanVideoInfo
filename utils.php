@@ -2,7 +2,7 @@
 
 require_once(dirname(__FILE__) . '/../constant.php');
 
-define('DOUBAN_PLUGINID', 'com.synology.TheMovieDb');
+define('PLUGINID', 'com.synology.TheTVDB');
 define('API_URL', 'https://api.douban.com/v2/movie/');
 define('DEFAULT_EXPIRED_TIME', 86400);
 define('DEFAULT_LONG_EXPIRED_TIME', 30*86400);
@@ -15,6 +15,50 @@ function getImdbID($input) {
 function RegexByRel($rel, $input) {
     preg_match_all('/<([^\s\/]+)(?=[^>]*>)[^>]*(rel|property)="' . $rel . '"[^>]*>([^<]*?)<\/\1>/', $input, $matches);
     return $matches[3];
+}
+
+function getSeasonsList($input) {
+  $seasons = array();
+  preg_match_all('/<(select) id=.season.[\s\S]*?((<(option) value=(\d+)[^>]+>(\d+)<\/\4>)+)[\s\S]*?<\/\1>/', $input, $matches);
+  if(! empty($matches)) {
+    $target = implode("", $matches[2]);
+    preg_match_all('/<(option) value=(\d+)[^>]+>(\d+)<\/\1>/', $target, $matches);
+    if(! empty($matches)) {
+      $cnt = 0;
+      foreach( $matches[3] as $index) {
+        $seasons[$index - 1] = $matches[2][$cnt++];
+      }
+    }
+  }
+  ksort($seasons);
+  return $seasons;
+}
+
+function getTagline($input) {
+  preg_match_all('/<([^\s\/]+)(?=[^>]*>)[^>]*>本集中文名:<\/\1>[^<]*<([^\s\/]+)(?=[^>]*>)[^>]*>([^<]*)<\/\2>/', $input, $matches);
+  if(! empty($matches[3])) {
+    return implode("", $matches[3]);
+  } else {
+    return NULL;
+  }
+}
+
+function getEpisodeDate($input) {
+  preg_match_all('/<([^\s\/]+)(?=[^>]*>)[^>]*>播放时间:<\/\1>[^<]*<([^\s\/]+)(?=[^>]*>)[^>]*>([^<]*)<\/\2>/', $input, $matches);
+  if(! empty($matches[3])) {
+    return implode("", $matches[3]);
+  } else {
+    return NULL;
+  }
+}
+
+function getEpisodeSummary($input) {
+  preg_match_all('/<([^\s\/]+)(?=[^>]*>)[^>]*>剧情简介:<\/\1>[^<]*<([^\s\/]+)(?=[^>]*>)[^>]*>[^<]*<([^\s\/]+)(?=[^>]*>)[^>]*>([^<]*)<\/\3>/', $input, $matches);
+  if(! empty($matches[4])) {
+    return trim(implode("",$matches[4]));
+  } else {
+    return NULL;
+  }
 }
 
 function getWriter($input) {
@@ -48,15 +92,53 @@ function getDoubanRawData($title, $limit = 20) {
     return json_decode( HTTPGETRequest( API_URL . "search?q={$title}&count={$limit}" ) , true);
 }
 
-function getDoubanMovieData($id) {
-    $cache_path = GetPluginDataDirectory(PLUGINID) . "/{$id}/movieInfo.json";
+function getDoubanTvData($id) {
+    // tv info from douban api
+    $cache_path = GetPluginDataDirectory(PLUGINID) . "/{$id}/tvInfo.json";
     $url = API_URL . "subject/{$id}";
-    $ret = DownloadMovieData($url, $cache_path);
+    $ret = DownloadTvData($url, $cache_path);
 
     // add-on info
     $cache_path = GetPluginDataDirectory(PLUGINID) . "/{$id}/addon.json";
     $url = "https://movie.douban.com/subject/{$id}/";
     return DownloadAddOnInfo($url, $cache_path, $ret);
+}
+
+function getEpisodeData($id, $episode, $season_data) {
+  $cache_path = GetPluginDataDirectory(PLUGINID) . "/${id}/episode_{$episode}.json";
+  $url = "https://movie.douban.com/subject/{$id}/episode/{$episode}/";
+  return DownloadEpisodeInfo($url, $cache_path, $episode, $season_data);
+}
+
+function getDoubanTvSeriesData($tv_data) {
+  $series_data = array();
+  if(!isset($tv_data->seasons_count)) {
+    $tv_data->season_count = 1;
+    $episodes = array(
+      'season' => $i + 1
+    );
+    for($j = 0; $j < $tv_data->episodes_count; $j++) {
+      $episodes['episode'][] = getEpisodeData($id, $j+1, $tv_data);
+    }
+    $series_data[] = $episodes;
+  } else {
+    for($i = 0; $i < $tv_data->seasons_count; $i++) {
+      $id = $tv_data->seasonid[$i];
+      if($tv_data->current_season != ($i + 1)) {
+        $season_data = getDoubanTvData($id);
+      } else {
+        $season_data = $tv_data;
+      }
+      $episodes = array(
+        'season' => $i + 1
+      );
+      for($j = 0; $j < $season_data->episodes_count; $j++) {
+        $episodes['episode'][] = getEpisodeData($id, $j+1, $season_data);
+      }
+      $series_data[] = $episodes;
+    }
+  }
+  return $series_data;
 }
 
 function getDataFromCache($cache_path) {
@@ -92,7 +174,7 @@ function refreshCache ($data, $cache_path) {
     return $data;
 }
 
-function DownloadMovieData($url, $cache_path) {
+function DownloadTvData($url, $cache_path) {
 	$json = getDataFromCache($cache_path);
 
 	//If we need refresh cache file, grab rawdata from url website
@@ -117,6 +199,7 @@ function DownloadAddOnInfo ($url, $cache_path, $ret) {
         $json['genres'] = RegexByRel('v:genre', $html);
         $json['casts'] = RegexByRel('v:starring', $html);
         $json['writers'] = getWriter($html);
+        $json['seasonid'] = getSeasonsList($html);
         refreshCache($json, $cache_path);
     }
 
@@ -125,4 +208,31 @@ function DownloadAddOnInfo ($url, $cache_path, $ret) {
     }
 
     return $ret;
+}
+
+function DownloadEpisodeInfo ($url, $cache_path, $episode, $season_data) {
+    $json = getDataFromCache($cache_path);
+
+    //If we need refresh cache file, grab rawdata from url website
+	if (FALSE === $json) {
+        $html = HTTPGETRequest($url);
+        $json = array();
+        $json['season'] = $season_data->current_season;
+        $json['episode'] = $episode;
+        $json['tagline'] = getTagline($html);
+        $json['original_available'] = getEpisodeDate($html);
+        $json['summary'] = getEpisodeSummary($html);
+        $json['certificate'] = $season_data->certificate;
+        $json['actor'] = $season_data->casts;
+        $json['genre'] = $season_data->genres;
+        $json['extra'] = array();
+        $json['extra'][PLUGINID] = array('reference' => array());
+        $json['extra'][PLUGINID]['reference']['thetvdb'] = $season_data->id;
+        $json['extra'][PLUGINID]['reference']['imdb'] = $season_data->imdb; // add-on
+		$json['extra'][PLUGINID]['rating'] = array('thetvdb' => $season_data->rating->average);
+        $json['extra'][PLUGINID]['poster'] = NULL;
+        refreshCache($json, $cache_path);
+    }
+
+    return $json;
 }

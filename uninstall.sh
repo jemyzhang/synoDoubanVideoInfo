@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PLUGIN_PATH=/var/packages/VideoStation/target/plugins/syno_themoviedb
+PLUGIN_PATH=/var/packages/VideoStation/target/plugins/syno_thetvdb
 PLUGIN_ORIG_TGZ=${PLUGIN_PATH}.orig.tgz
 
 if [ ! -f ${PLUGIN_ORIG_TGZ} ]; then

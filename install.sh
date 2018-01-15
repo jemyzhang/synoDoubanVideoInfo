@@ -1,13 +1,13 @@
 #!/bin/bash
 
-PLUGIN_PATH=/var/packages/VideoStation/target/plugins/syno_themoviedb
+PLUGIN_PATH=/var/packages/VideoStation/target/plugins/syno_thetvdb
 PLUGIN_ORIG_TGZ=${PLUGIN_PATH}.orig.tgz
 
 VERSION='1.1';
 INSTALLED_VERSION=
 
-DOWNLOAD_URL="https://github.com/jemyzhang/synoDoubanVideoInfo/releases/download/$VERSION/douban.tar"
-DOWNLOADED_FILE=/tmp/douban.tar
+DOWNLOAD_URL="https://github.com/jemyzhang/synoDoubanVideoInfo/releases/download/$VERSION/douban_tv.tar"
+DOWNLOADED_FILE=/tmp/douban_tv.tar
 VERSION_FLAG=${PLUGIN_PATH}/.douban.plugin
 
 if [ -e ${VERSION_FLAG} ]; then
