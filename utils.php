@@ -7,6 +7,13 @@ define('API_URL', 'https://api.douban.com/v2/movie/');
 define('DEFAULT_EXPIRED_TIME', 86400);
 define('DEFAULT_LONG_EXPIRED_TIME', 30*86400);
 
+/*
+function HTTPGETRequest($url)
+{
+    curl_setopt($ch,CURLOPT_USERAGENT,'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36');
+}
+*/
+
 function getImdbID($input) {
     preg_match_all('/<([^\s\/]+)[^>]*imdb\.com[^>]*(rel|property)="nofollow"[^>]*>([^<]*?)<\/\1>/', $input, $matches);
     return implode("", $matches[3]);
@@ -32,6 +39,15 @@ function getSeasonsList($input) {
   }
   ksort($seasons);
   return $seasons;
+}
+
+function getCurrentSeason($input) {
+  preg_match_all('/<([^\s\/]+)(?=[^>]*>)[^>]*>季数:<\/\1>\s*([^<]*)<br\/>/', $input, $matches);
+  if(! empty($matches[2])) {
+    return implode("", $matches[2]);
+  } else {
+    return 1;
+  }
 }
 
 function getTagline($input) {
@@ -112,8 +128,9 @@ function getEpisodeData($id, $episode, $season_data) {
 
 function getDoubanTvSeriesData($tv_data) {
   $series_data = array();
-  if(!isset($tv_data->seasons_count)) {
-    $tv_data->season_count = 1;
+  if(!isset($tv_data->seasons_count) || empty($tv_data->seasonid)) {
+    $tv_data->seasons_count = 1;
+    $id = $tv_data->id;
     $episodes = array(
       'season' => $i + 1
     );
@@ -200,6 +217,9 @@ function DownloadAddOnInfo ($url, $cache_path, $ret) {
         $json['casts'] = RegexByRel('v:starring', $html);
         $json['writers'] = getWriter($html);
         $json['seasonid'] = getSeasonsList($html);
+        if(! isset($ret->current_season)) {
+          $json['current_season'] = getCurrentSeason($html);
+        } 
         refreshCache($json, $cache_path);
     }
 
@@ -222,7 +242,7 @@ function DownloadEpisodeInfo ($url, $cache_path, $episode, $season_data) {
         $json['tagline'] = getTagline($html);
         $json['original_available'] = getEpisodeDate($html);
         $json['summary'] = getEpisodeSummary($html);
-        $json['certificate'] = $season_data->certificate;
+        $json['certificate'] = array();
         $json['actor'] = $season_data->casts;
         $json['genre'] = $season_data->genres;
         $json['extra'] = array();
@@ -236,3 +256,4 @@ function DownloadEpisodeInfo ($url, $cache_path, $episode, $season_data) {
 
     return $json;
 }
+
